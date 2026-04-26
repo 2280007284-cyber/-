@@ -1,165 +1,314 @@
-基于物理信息神经网络的海流高分辨率重构技术方案
-1. 研究背景与目标
-1.1 研究背景
-海洋流场重构是海洋学研究中的核心问题，传统数值模式（如CMEMS）受限于计算资源，难以提供高分辨率的流场数据。拉格朗日浮标（如GDP数据）虽然能提供高精度的点观测，但空间分布稀疏。物理信息神经网络（PINN）为融合多源数据、实现流场超分辨率重构提供了新的技术路径。
-1.2 研究目标
-	开发基于PINN的海流重构框架
-	融合CMEMS背景场与GDP浮标观测
-	实现从低分辨率到高分辨率的流场超分辨率重构
-	验证PINN在海洋数据同化中的有效性
-2. 数据源与处理方案
-2.1 数据源配置
-2.1.1 CMEMS数据（背景场）
-	作用：提供大尺度背景场约束
-	产品：全球海洋物理分析与预报产品
-	变量：表层流速(u,v)、海面高度、温度
-	分辨率：1/12°（约9km）或1/4°（约25km）
-2.1.2 GDP浮标数据（观测修正）
-	作用：提供高频局部修正
-	处理步骤：
-	粗大误差剔除（速度>2.5m/s的异常点）
-	风生滑移校正（使用ERA5风场数据）
-	重采样至固定时间间隔（1-6小时）
-2.1.3 HYCOM数据（真值验证）
-	作用：高分辨率参考真值
-	产品：HYCOM全球1/50°（约2km）或1/12°产品
-	用途：验证重构精度的基准
-2.2 数据预处理流程
-# 数据清洗与预处理流程
-def data_preprocessing():
-# 1. CMEMS数据处理
-cmems_data = load_cmems_data()
-cmems_interp = interpolate_to_target_grid(cmems_data)
-# 2. GDP数据清洗
-gdp_raw = load_gdp_data()
-gdp_clean = remove_outliers(gdp_raw)  # 剔除异常点
-gdp_corrected = correct_wind_slippage(gdp_clean, era5_wind)  # 风滑移校正
-gdp_resampled = resample_to_fixed_interval(gdp_corrected)  # 重采样
-# 3. HYCOM数据准备
-hycom_true = load_highres_hycom()
-return cmems_interp, gdp_resampled, hycom_true
-3. PINN模型架构设计
-3.1 网络结构
-3.1.1 输入层
-	时空坐标：(x, y, t)
-	特征嵌入：傅里叶特征映射（解决频谱偏差问题）
-3.1.2 隐藏层
-	深度神经网络：6-8层，每层128-256神经元
-	激活函数：Tanh或Sine（适合周期性海洋现象）
-3.1.3 输出层
-	预测变量：流速(u,v) + 流函数(ψ)
-	约束方式：通过流函数微分保证无散度条件
-3.2 物理约束方程
-3.2.1 动量方程约束
-  ∂u/∂t+(u⋅∇)u+fk×u=-g∇η-1/ρ ∇p+ν∇^2 u 
-3.2.2 连续性方程约束
-  ∇⋅u=0 
-4. 损失函数设计
-4.1 多项式损失函数
-  Loss=λ_data L_data+λ_phy L_phy+λ_bg L_bg+λ_reg L_reg 
-4.2 损失项详解
-4.2.1 数据同化项（  L_data ）
-	CMEMS项：固定网格点上的MSE误差
-	GDP项：移动轨迹点上的MSE误差
-4.2.2 物理约束项（  L_phy ）
-	动量方程残差
-	连续性方程残差
-	地转平衡约束
-4.2.3 背景场约束项（  L_bg ）
-	与CMEMS背景场的偏差惩罚
-	保证大尺度结构一致性
-4.2.4 正则化项（  L_reg ）
-	L2权重正则化
-	高波数惩罚（促进高频细节学习）
-5. 模型训练策略
-5.1 迁移学习方案
-5.1.1 预训练阶段
-	数据：HYCOM模拟的GDP轨迹 + 降采样CMEMS
-	目标：学习基本海洋动力学特征
-	训练方式：全网络训练
-5.1.2 微调阶段
-	数据：真实GDP + 真实CMEMS
-	目标：适应真实观测特征
-	训练方式：冻结底层，微调顶层；或使用小学习率
-5.2 优化算法
-	优化器：Adam + 学习率衰减
-	初始学习率：1e-3（预训练），1e-5（微调）
-	批量大小：1024-4096个时空点
-6. 验证与评估方案
-6.1 精度评估指标
-6.1.1 点对点误差
-	RMSE：均方根误差（m/s）
-	MAE：平均绝对误差（m/s）
-	计算方式：分别计算u分量和v分量
-6.1.2 空间结构相似性
-	相关系数（CC）：空间相关性
-	MS-SSIM：多尺度结构相似性
-	能谱分析：验证小尺度湍流特征
-6.1.3 时间序列特征
-	周期性验证：潮汐、惯性振荡等特征
-	长期稳定性：误差随时间的累积情况
-6.2 验证策略
-6.2.1 留一法交叉验证
-	随机保留10%的GDP浮标不参与训练
-	用独立浮标验证模型泛化能力
-6.2.2 独立时段验证
-	训练集：前80%时间序列
-	测试集：后20%时间序列
-	验证时间外推能力
-6.2.3 空间迁移验证
-	训练区域：数据丰富区
-	测试区域：数据稀疏区
-	验证空间迁移能力
-7. 计算效率优化
-7.1 并行计算策略
-	空间分解：将大区域分解为5°×5°子区域
-	GPU加速：使用CUDA进行并行计算
-	混合精度：float32/float64混合计算
-7.2 推理优化
-	模型压缩：剪枝、量化
-	缓存机制：预计算常用插值
-	批处理：批量预测时空网格
-8. 预期成果与创新点
-8.1 技术成果
-	高分辨率流场产品：实现从25km到2km的超分辨率重构
-	实时预报系统：秒级流场预测能力
-	开源工具包：完整的PINN海洋应用框架
-8.2 创新点
-	混合数据同化：首次融合欧拉场（CMEMS）与拉格朗日观测（GDP）
-	物理约束增强：引入多尺度物理约束
-	迁移学习框架：解决海洋数据稀疏性问题
-	实时超分辨率：实现业务化海洋预报的计算效率
-9. 应用前景
-9.1 科学研究
-	中尺度涡旋动力学研究
-	海洋物质输运模拟
-	海气相互作用分析
-9.2 业务应用
-	航海安全保障
-	海洋环境保护
-	渔业资源管理
-	海洋工程支持
-10. 实施计划
-10.1 第一阶段（1-3个月）
-	数据收集与预处理
-	基础PINN框架搭建
-	模拟环境验证
-10.2 第二阶段（4-6个月）
-	真实数据训练与优化
-	迁移学习策略实施
-	全面验证评估
-10.3 第三阶段（7-9个月）
-	系统集成与优化
-	性能基准测试
-	成果总结与论文撰写
-11. 风险评估与应对
-11.1 技术风险
-	数据质量问题：GDP风滑移校正不准确
-	*应对*：采用多源风场数据交叉验证
-	模型收敛困难：物理约束与数据同化冲突
-	*应对*：动态调整损失权重，分阶段训练
-11.2 计算资源风险
-	训练时间过长：大规模网格计算压力
-	*应对*：采用空间分解并行策略
-12. 结论
-本技术方案提出了一套完整的基于PINN的海流高分辨率重构框架，通过融合CMEMS背景场与GDP浮标观测，结合物理约束与迁移学习策略，有望解决传统海洋预报系统分辨率低、计算成本高的问题。该方案具有明确的科学价值和广阔的应用前景，为智能海洋预报提供了新的技术路径。
+# 基于 PINN-SR 的高分辨率海流重构（CMEMS + GDP）
+
+你当前的目标是：先把 GDP 做 **ERA5 风滑移矫正 + Stokes 矫正**，再把修正后的 GDP 与 CMEMS 一起输入 PINN-SR，输出高分辨率流场。
+
+## 1) 第一步：GDP 矫正（已提供脚本）
+
+新增脚本：`gdp_correction.py`
+
+### 输入
+- GDP 轨迹文件（CSV/Parquet/NetCDF）：至少包含 `lon, lat, time, u, v`
+- ERA5 风场（NetCDF）：默认变量名 `u10, v10`
+- Stokes 漂移（NetCDF，可选）：默认变量名 `ust, vst`
+  - 如果你没有 Stokes 文件，脚本会自动用经验公式估算：`U_stokes ≈ 0.015 × U10`
+
+### 矫正公式
+
+```text
+u_corr = u_obs - alpha * u10 - u_stokes
+v_corr = v_obs - alpha * v10 - v_stokes
+```
+
+其中：
+- `alpha`：风滑移系数，默认 `0.007`
+- `beta`：Stokes 缩放系数，默认 `1.0`（仅在提供 `--stokes` 数据时生效）
+- 若不提供 `--stokes`，则自动使用 `u_stokes=gamma*u10, v_stokes=gamma*v10`，默认 `gamma=0.015`
+
+### 运行示例
+
+```bash
+python gdp_correction.py \
+  --gdp data/gdp.csv \
+  --era5 data/era5_u10v10.nc \
+  --out data/gdp_corrected.csv \
+  --alpha-wind 0.007 \
+  --stokes-from-wind-coeff 0.015
+```
+
+### 你给的路径可直接这样运行（Windows）
+
+```bash
+python gdp_correction.py
+```
+
+> 代码已内置默认路径：  
+> `D:\download\uswc_drifter_6hour_2023.nc`  
+> `D:\data\wind_2023_uswc.nc`  
+> 输出到 `D:\download\uswc_drifter_6hour_2023_corrected.nc`
+
+如果你想手动覆盖默认路径，再用下面命令：
+
+```bash
+python gdp_correction.py ^
+  --gdp "D:\\download\\uswc_drifter_6hour_2023.nc" ^
+  --era5 "D:\\data\\wind_2023_uswc.nc" ^
+  --out "D:\\download\\uswc_drifter_6hour_2023_corrected.nc" ^
+  --alpha-wind 0.007 ^
+  --stokes-from-wind-coeff 0.015
+```
+
+如果你的 GDP 或风场变量名不是默认值（`lon/lat/time/u/v` 与 `u10/v10`），请额外传参：
+`--gdp-lon-col --gdp-lat-col --gdp-time-col --gdp-u-col --gdp-v-col --era5-u-col --era5-v-col`。
+
+脚本现在也会自动尝试常见 GDP 变量名（例如 `longitude/latitude/ve/vn`）。  
+如果仍匹配失败，会在报错里打印可用列名，你把那行报错贴出来我可以直接给你最终参数。
+
+另外脚本会自动把 GDP 时间统一成 **UTC 无时区 datetime64**，避免 `xarray.interp` 对时区对象报错。
+
+输出文件会新增：`u_corr, v_corr` 以及中间项（`u_wind_slip, v_wind_slip, u_stokes, v_stokes`）。
+
+---
+
+## 2) 第二步：PINN-SR 重构
+
+脚本：`pinn_sr_workflow.py`
+
+- 把 `load_gdp_corrected()` 接到第一步输出数据（`u_corr, v_corr`）。
+- 把 `load_cmems_background()` 接到 CMEMS 背景流场。
+- 训练后调用高分辨率网格推理，输出 `u_hr, v_hr, psi_hr`。
+
+### 当前模板包含
+- Fourier 特征 + MLP PINN
+- 三项损失：`L_data + L_bg + L_phy`
+- 可扩展物理约束（当前内置不可压缩约束）
+
+### 运行
+
+```bash
+python pinn_sr_workflow.py
+```
+
+> 注意：`pinn_sr_workflow.py` 的数据加载函数仍需你按实际文件格式补齐（xarray/netCDF/CSV）。
+
+## 3) 单独训练脚本（你当前这个 u/v CMEMS 场景）
+
+你这个 `D:\data\uswc_2023_cmems.nc` 是 **u 和 v 都有**，我给了两个独立训练脚本：
+
+- `train_pinn_sr_mlp.py`：PINN-SR（MLP骨干）
+- `train_pinn_sr_kan.py`：PINN-SR（KAN风格骨干）
+
+两个脚本都默认读取：  
+- CMEMS：`D:\data\uswc_2023_cmems_cleaned.nc`（优先读 `u_clean/v_clean`）  
+- GDP：`D:\download\uswc_drifter_6hour_2023_corrected.nc`（优先读 `u_corr/v_corr`）  
+并做联合训练 `(u,v)(lon,lat,t)`。
+默认会把 **GDP 最后 30 天** 预留为验证集（可用 `--val-days` 调整）。
+
+### 训练 MLP 版本
+
+```bash
+python train_pinn_sr_mlp.py --epochs 3000 --batch-size 4096 --val-days 30
+# 推荐：开启残差学习（预测相对 CMEMS 的修正量）
+python train_pinn_sr_mlp.py --residual-mode --epochs 3000 --batch-size 4096 --val-days 30
+```
+
+### 训练 KAN 版本
+
+```bash
+python train_pinn_sr_kan.py --epochs 3000 --batch-size 4096 --num-basis 16 --val-days 30
+# 推荐：开启残差学习（预测相对 CMEMS 的修正量）
+python train_pinn_sr_kan.py --residual-mode --epochs 3000 --batch-size 4096 --num-basis 16 --val-days 30
+```
+
+已内置早停（Early Stopping）：`--early-stop-patience 8 --early-stop-min-delta 1e-4 --eval-every 200`。  
+会额外保存最佳模型：`pinn_sr_mlp_uv_best.pt` / `pinn_sr_kan_uv_best.pt`。
+
+如果你临时不想用 GDP，可显式关闭：`--gdp ""`。
+默认采用“GDP 权重上升 + 物理权重下降”的调度：  
+`--lambda-gdp-start 0.2 --lambda-gdp-end 1.0`，  
+`--lambda-phy-start 0.05 --lambda-phy-end 0.005`，  
+并会自动检查 GDP/CMEMS 速度量级（优先读 units，或按分位数判定；疑似 cm/s 会自动转 m/s）。
+残差学习 checkpoint 会被导出脚本自动识别（`residual_mode=True`），并在导出时加回 CMEMS 背景场。
+并自动对齐 GDP 经度到 CMEMS 坐标体系（-180~180 或 0~360）。
+训练启动时会打印空间匹配度：GDP 点落在 CMEMS 边界框内的比例（`[Match] ... GDP in-box=...`）。
+训练内部会对输入和速度标签做标准化，并额外打印 `bg_rmse_mps`（物理单位下的背景场 RMSE）。
+其中 `gdp/gdp_val` 误差是“模型在 GDP 轨迹点上的预测”与“矫正后的 GDP 速度（u_corr/v_corr）”之间的误差。
+
+输出模型：
+- `pinn_sr_mlp_uv.pt`
+- `pinn_sr_kan_uv.pt`
+- `pinn_sr_mlp_uv_best.pt`
+- `pinn_sr_kan_uv_best.pt`
+
+## 4.5) 把 best 模型导出成“重构流场文件”
+
+新增脚本：`export_reconstruction_from_checkpoint.py`
+以及拆分版：
+- `export_reconstruction_kan.py`（只导出 KAN）
+- `export_reconstruction_mlp.py`（只导出 MLP）
+> 两个拆分脚本已做“同目录动态加载”，即使你不在脚本目录下执行，也能找到 `export_reconstruction_from_checkpoint.py`。
+
+现在已内置默认路径，可直接运行（默认同时导出 KAN+MLP 的 best）：  
+
+```bash
+python export_reconstruction_from_checkpoint.py
+```
+
+默认输出：
+- `D:\data\recon_kan.nc`
+- `D:\data\recon_mlp.nc`
+- 当 `--model-type both` 时，请使用：
+  - `--ckpt-kan / --ckpt-mlp`
+  - `--out-kan / --out-mlp`
+  不能再用单模型参数 `--ckpt / --out / --recon`。
+
+> 注意：`--recon` 是 **compare_reconstruction_vs_cmems.py** 的参数；  
+> 在导出脚本里它只是 `--out` 的兼容别名。
+> 若 checkpoint 是旧版（仅 `state_dict`，无归一化统计），导出脚本会自动从 `--cmems` 估计归一化参数后继续导出。
+
+示例（KAN）：
+
+```bash
+python export_reconstruction_kan.py \
+  --ckpt pinn_sr_kan_uv_best.pt \
+  --cmems D:\\data\\uswc_2023_cmems_cleaned.nc \
+  --out D:\\data\\recon_kan.nc
+```
+
+如果显存不够可加：`--batch-size 20000`（脚本也会在 CUDA OOM 时自动回退到 CPU 分批推理）。
+如果你感觉“卡住很久”，通常不是死掉，而是在跑大网格推理；可以：
+- 先只导出单模型：`--model-type kan`（或 `mlp`）
+- 减小 `--batch-size`（显存紧张）或调大（显存充足时更快）
+- 利用新参数 `--log-every-batches` 看实时进度
+- 旧 checkpoint 触发归一化兜底时，可用 `--max-norm-samples` 控制采样规模加速
+- 先做冒烟验证可加 `--max-time-steps 10`，只导出前 10 个时刻
+- 若你是 PyTorch 2.6+ 且 checkpoint 来自可信来源，脚本会自动兼容 `weights_only` 变更；若不信任来源可加 `--untrusted-checkpoint` 禁用该回退
+- 若你在 IDE 里看不到实时日志，建议用 `python -u ...` 运行（无缓冲输出）
+- 若你要输出更高分辨率网格，可加 `--upscale-factor 2`（或更大），在 CMEMS 经纬度范围内细化网格再导出
+
+示例（MLP）：
+
+```bash
+python export_reconstruction_mlp.py \
+  --ckpt pinn_sr_mlp_uv_best.pt \
+  --cmems D:\\data\\uswc_2023_cmems_cleaned.nc \
+  --out D:\\data\\recon_mlp.nc
+```
+
+## 5) 重构场 vs CMEMS 基线：对验证浮标误差对比
+
+新增脚本：`compare_reconstruction_vs_cmems.py`
+以及三方对比脚本：`compare_kan_mlp_vs_cmems.py`（KAN + MLP + CMEMS 同时评估）
+> `compare_kan_mlp_vs_cmems.py` 已内嵌全部计算逻辑，不再依赖 `compare_reconstruction_vs_cmems.py`。
+
+用途：
+1. 重构流场 vs 浮标验证集误差
+2. 原始/清洗后 CMEMS vs 浮标验证集误差
+3. 输出两者对比和提升百分比
+
+示例：
+
+```bash
+# 使用默认路径（recon_kan/recon_mlp/cmems/gdp）直接评估
+python compare_kan_mlp_vs_cmems.py
+
+# 自定义路径
+python compare_reconstruction_vs_cmems.py \
+  --recon D:\\data\\your_reconstructed_flow.nc \
+  --cmems D:\\data\\uswc_2023_cmems_cleaned.nc \
+  --gdp D:\\download\\uswc_drifter_6hour_2023_corrected.nc \
+  --val-days 30
+
+# 一次性对比 KAN/MLP/CMEMS（推荐）
+python compare_kan_mlp_vs_cmems.py \
+  --recon-kan D:\\data\\recon_kan.nc \
+  --recon-mlp D:\\data\\recon_mlp.nc \
+  --cmems D:\\data\\uswc_2023_cmems_cleaned.nc \
+  --gdp D:\\download\\uswc_drifter_6hour_2023_corrected.nc \
+  --val-days 30 \
+  --plot-out D:\\data\\compare_kan_mlp_vs_cmems.png
+```
+
+若读取 `.nc` 报 xarray backend 依赖缺失，请先安装：
+`pip install netCDF4`（或安装 `h5netcdf/scipy`），
+或者把 GDP `.nc` 转成 `csv/parquet` 再传给 `--gdp`。
+对比脚本会自动把 GDP / KAN / MLP / CMEMS 速度统一到 m/s（优先读 units，缺失时按量级启发式推断），并打印缩放系数，避免单位不一致导致误差虚高。
+如果 GDP 列名不标准，可手动指定：`--gdp-u-col --gdp-v-col --gdp-lon-col --gdp-lat-col --gdp-time-col`。
+若数据中含异常填充值/坏点，可用 `--max-abs-speed`（默认 5 m/s）进行物理范围过滤。
+脚本会同时汇报 `RMSE_vec`（u/v 向量误差，推荐主指标）和 `RMSE_speed`（仅速度大小误差）。
+并自动输出柱状图（默认 `compare_kan_mlp_vs_cmems.png`）。
+
+### 我是不是要先跑 KAN 和 MLP？
+
+- **如果你已经有“重构流场文件”**（`--recon`），**不用先跑** KAN/MLP，直接做第 5 步对比评估。  
+- **如果你还没有重构流场文件**，就需要先训练（第 3 步）：  
+  - 跑 `train_pinn_sr_mlp.py` 得到 `pinn_sr_mlp_uv_best.pt`  
+  - 跑 `train_pinn_sr_kan.py` 得到 `pinn_sr_kan_uv_best.pt`  
+  然后用你导出的重构场去做第 5 步评估。  
+- 一般建议：**两个都跑**，再用第 5 步统一和 CMEMS 基线对比，选误差更小的模型。
+
+> 当前物理约束采用简化 2D 粘性 NS 形式（u、v 双分量）+ 无散度约束，适合先跑通对比两种骨干网络。
+
+## 5.1) 用 HF 雷达流场做“参考真值”评估（KAN / MLP / CMEMS）
+
+新增脚本：`compare_kan_mlp_cmems_vs_hf.py`
+
+示例（你的目录可直接跑）：
+
+```bash
+python compare_kan_mlp_cmems_vs_hf.py \
+  --hf-dir D:\\生产力\\py程序\\pythonProject\\hf\\202307_uswc_1km_rtv_sio \
+  --recon-kan D:\\data\\recon_kan.nc \
+  --recon-mlp D:\\data\\recon_mlp.nc \
+  --cmems D:\\data\\uswc_2023_cmems_cleaned.nc \
+  --max-abs-speed 5.0 \
+  --snapshot-count 3 \
+  --snapshot-out-dir D:\\data\\hf_snapshots
+```
+
+输出包括：
+- KAN vs HF
+- MLP vs HF
+- CMEMS vs HF
+- KAN/MLP 相对 CMEMS 的 `RMSE_vec` 提升百分比
+- 小尺度梯度能量（`Small-scale gradient energy`，越接近 HF 越好）
+- 流场快照对比图（HF/KAN/MLP/CMEMS，默认首个 HF 文件里自动挑 3 个时刻）
+
+注：该脚本按 HF 文件逐个流式处理，避免一次性拼接整月导致内存爆掉。
+
+## 5.2) 按 SR 四宫格结构导出流场快照图
+
+新增脚本：`plot_sr_snapshots_auto.py`  
+会自动选观测点最多的时刻，输出你需要的 2x2 结构图：  
+CMEMS(展示到HR网格) / Bilinear / PINN-SR(HR) / 差值图。
+
+示例：
+
+```bash
+python plot_sr_snapshots_auto.py \
+  --data D:/data/output/train_data_2023.nc \
+  --ckpt D:/data/output/checkpoints_sr_strict_weighted/best_sr.pt \
+  --out-dir D:/data/output/snapshots_sr_auto \
+  --scale 2 --channels 64 --top-n 6 --min-gap-hours 24
+```
+
+## 4) 先做 CMEMS 数据清洗（你刚提到的这一步）
+
+新增脚本：`clean_cmems_u.py`（针对你当前 **u/v** CMEMS 文件）
+
+默认输入输出：
+- 输入：`D:\data\uswc_2023_cmems.nc`
+- 输出：`D:\data\uswc_2023_cmems_cleaned.nc`
+
+直接运行：
+
+```bash
+python clean_cmems_u.py
+```
+
+可调参数示例：
+
+```bash
+python clean_cmems_u.py --max-abs-speed 3.0 --interp-limit 8 --smooth-window 3
+```
+
+清洗内容：时间排序、异常值剔除（|u|/|v|>阈值）、缺测插值（time→lat→lon）、可选时间平滑，输出 `u_clean,v_clean`。
